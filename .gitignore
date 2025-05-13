@@ -1,0 +1,7 @@
+# --- Data (keep samples only) ---
+data/raw_images/**
+# data/obverse/**
+# data/reverse/**
+# data/date/**
+# data/mint_mark/**
+# data/liberty/**
