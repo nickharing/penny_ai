@@ -1,0 +1,60 @@
+# System Information
+
+Snapshot of current PC hardware and Python environment relevant to the Penny Vision project.
+
+```
+=== Operating System ===
+System:     Windows
+Node Name:  nh
+Release:    10
+Version:    10.0.26100
+Machine:    AMD64
+Processor:  Intel64 Family 6 Model 140 Stepping 1, GenuineIntel
+
+=== CPU ===
+Physical cores: 4
+Logical cores:  8
+Max Frequency:  1498.00 MHz
+Min Frequency:  0.00 MHz
+Current Freq.:  1498.00 MHz
+CPU Utilization: 7.2%
+
+=== Memory ===
+Total:      63.73 GB
+Available:  43.73 GB
+Used:       19.99 GB (31.4%)
+
+=== Disk Partitions ===
+C:\ (C:\) — 928.60 GB total, 43.5% used
+
+=== GPU(s) ===
+GPUtil not installed; skipping GPU detection.
+
+=== Python Environment ===
+Python Version: 3.11.9
+Executable:     C:\Users\nickharing\OneDrive\Documents\nh\Git_repo\coin_sorter\AI_env_311\Scripts\python.exe
+Current Time:   2025-05-03T12:16:06.186449
+Installed Packages:
+- numpy (1.26.4) — numeric computing
+- opencv-python (4.11.0) — image processing
+- torch (2.6.0+cu118) — neural network framework
+- torchvision (0.21.0) — vision utilities
+- torchmetrics (1.7.0) — model metrics
+- pytorch-lightning (2.5.1) — training scaffolding
+- onnx (1.15.0) — model interchange format
+- onnxruntime (1.17.3) — ONNX model runtime
+- onnx-simplifier (0.4.36) — simplify ONNX graphs
+- onnxconverter-common (1.14.0) — ONNX conversion support
+- onnxmltools (1.13.0) — ONNX model tools
+- onnxruntime-tools (1.7.0) — ONNX runtime tools
+- imx500-converter (3.14.3) — quantize models for IMX500
+- psutil (7.0.0) — system monitoring
+- PyYAML (6.0.2) — YAML config parsing
+- pillow (11.1.0) — image I/O
+- pandas (2.2.3) — tabular data handling, CSV/JSON I/O
+- scikit-image (0.25.2) — advanced image-processing routines beyond OpenCV
+- scikit-learn (1.6.1) — classical ML algorithms (SVMs, clustering, etc.)
+- matplotlib (3.9.4) — plotting/visualization for reports and debugging
+- easyocr (1.7.2) — OCR toolkit (could be a fallback for date read)
+- coin-clip (0.1) — coin-specific embedding model support
+```
