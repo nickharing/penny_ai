@@ -1,10 +1,11 @@
 # ── exclude heavy image data ─────────────────────────────
-data/raw_images/**
-data/obverse/**
-data/reverse/**
-data/date/**
-data/mint_mark/**
-data/liberty/**
+# data/obverse/**
+# data/reverse/**
+# data/date/**
+# data/mint_mark/**
+# data/liberty/**
+  data/raw_images/**
+
 
 # reproducible outputs
-output/**
+# output/**
