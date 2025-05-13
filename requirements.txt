@@ -1,0 +1,21 @@
+# requirements.txt
+# Python script to define project dependencies.
+
+torch>=2.2
+torchvision>=0.17
+onnx>=1.16
+onnxruntime>=1.18.0
+# onnxruntime-tools implicitly installed with onnxruntime, or specify if particular version needed
+# For onnxruntime.quantization.quantize_static, onnxruntime-tools is not strictly listed as a separate pip install usually.
+# It's part of the onnxruntime package, specifically the contrib modules.
+# However, if direct utilities from onnxruntime-tools are needed as a separate package, it should be listed.
+# For now, assuming onnxruntime covers the quantization utilities.
+pyyaml>=6.0
+rich>=13.0
+# coin_clip fork - this will be a local/git dependency, not from PyPI directly
+# For a typical requirements.txt, you might point to a git repo:
+# coin-clip @ git+https://github.com/user/coin-clip-fork.git@main
+# For now, I will assume it's importable in the environment.
+scikit-learn>=1.6.1 # For train_test_split
+pandas>=2.2.0 # For reading metadata
+Pillow>=10.0 # For image loading
