@@ -1,31 +1,26 @@
-    # requirements.txt
-    # Python package dependencies for the Penny AI project.
+# Python package dependencies for the Penny AI project.
 
-    # Core ML/DL Frameworks
-    torch>=2.2.0
-    torchvision>=0.17.0
+# Core ML/DL Frameworks
+torch>=2.2.0
+torchvision>=0.17.0
 
-    # ONNX related packages
-    onnx==1.16.0
-    onnxruntime==1.18.0
-    onnxruntime-tools==1.7.0
-    protobuf==4.25.3 # Pinned to a version compatible with onnx 1.16 and other existing packages
+# ONNX stack
+onnx==1.16.0
+onnxruntime==1.18.0
+onnxruntime-tools>=1.12.0    # 1.12+ adds quantize_dynamic / quantize_static APIs
 
-    # Configuration and Utilities
-    pyyaml>=6.0
-    rich>=13.0
+# Configuration and utilities
+pyyaml>=6.0
+rich>=13.0
 
-    # Metrics and Data Handling
-    scikit-learn>=1.6.1
-    pandas>=2.2.0
-    Pillow>=10.0
+# Metrics
+scikit-learn>=1.4.0
+Pillow>=10.0
 
-    # Coin-CLIP: Using public PyPI package
-    coin_clip>=0.1.0
+# Coin-CLIP backbone
+coin_clip>=0.1.0             # Public PyPI build
+# TODO: when an IMX500-safe fork exists, swap the line above for:
+# coin_clip @ git+https://github.com/nickharing/coin_clip.git@imx500
 
-    # TODO: If/when we maintain an IMX500-safe custom fork, switch to the line below.
-    # coin-clip @ git+https://github.com/nickharing/coin_clip.git@imx500
-
-    # Testing framework
-    pytest>=7.0.0
-    
+# Testing
+pytest>=7.0.0

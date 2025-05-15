@@ -1,49 +1,28 @@
-# .github/workflows/ci_tests.yml
-# GitHub Action workflow to run unit tests for the Penny AI project.
+name: Penny AI CI Tests
 
-name: Penny AI CI Tests # Name of the workflow
-
-on: # Triggers for the workflow
+on:
   push:
-    branches: [ main ] # Run on pushes to the main branch
+    branches: [ main, feat/*, fix/*, chore/* ]
   pull_request:
-    branches: [ main ] # Run on pull requests targeting the main branch
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  test: # Define a job named 'test'
-    runs-on: ubuntu-latest # Specify the runner environment
-
-    strategy:
-      matrix:
-        python-version: ["3.11"] # Specify Python versions to test with
-
+  tests:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository # Step 1: Check out the code
-        uses: actions/checkout@v4 # Use the official checkout action
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }} # Step 2: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip' # Cache pip dependencies
+          python-version: 3.11
 
-      - name: Install dependencies # Step 3: Install project dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest # Ensure pytest is installed for running tests
 
-      - name: Run unit tests # Step 4: Run the tests
-        run: |
-          pytest tests/test_training.py
-        # The test script (tests/test_training.py) is designed to run quickly
-        # (1 epoch, CPU, data_examples). This step should complete well within 10 minutes.
-
-      # Optional: Upload test results as artifacts (if using a reporter that generates files)
-      # - name: Upload test results
-      #   if: always() # Run this step even if previous steps fail
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: pytest-results-${{ matrix.python-version }}
-      #     path: pytest_results.xml # Example path if using pytest-html or similar
+      - name: Run unit tests
+        run: pytest tests/test_training.py
