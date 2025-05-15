@@ -1,0 +1,136 @@
+# configs/training_config.yaml
+# Master configuration file for all model training tasks.
+#
+# To use a specific configuration, the training script will load this file
+# and select one of the top-level keys (e.g., "date", "mint", "orientation", "side").
+
+side:
+  # Data paths
+  data_root: "data/"
+  metadata_json_path: "metadata/metadata.json"
+  # roi_json_path is not typically needed for side classification, as it uses the whole cropped penny.
+  # It's included for consistency but might be ignored by the dataset loader for this model_type.
+  roi_json_path: "metadata/roi_coordinates.json"
+
+  # Model selection and architecture
+  model_type: "side" # Must match the top-level key
+  backbone: "coin_clip_vit_b32"
+  img_size: [224, 224] # Input image size for the model
+
+  # Training hyperparameters
+  num_epochs: 20 # Side classification might train faster
+  batch_size: 64
+  lr: 0.0003
+  weight_decay: 0.05
+  optimizer_betas: [0.9, 0.999]
+
+  # LR Scheduler
+  lr_scheduler_eta_min: 0.000001
+  lr_warmup_epochs: 1
+
+  # Output and export
+  output_dir: "models/side" # Directory for final ONNX models for 'side'
+  quantize: true
+  qat: false
+
+  # Miscellaneous
+  seed: 42
+  device: null
+  num_workers: 4
+
+date:
+  # Data paths
+  data_root: "data/"
+  metadata_json_path: "metadata/metadata.json"
+  roi_json_path: "metadata/roi_coordinates.json"
+
+  # Model selection and architecture
+  model_type: "date" # Must match the top-level key for consistency with TrainingConfig
+  backbone: "coin_clip_vit_b32"
+  img_size: [224, 224]
+
+  # Training hyperparameters
+  num_epochs: 30
+  batch_size: 64
+  lr: 0.0003
+  weight_decay: 0.05
+  optimizer_betas: [0.9, 0.999]
+
+  # LR Scheduler
+  lr_scheduler_eta_min: 0.000001
+  lr_warmup_epochs: 1
+  # lr_scheduler_T_max_epochs will be derived if not specified
+
+  # Output and export
+  output_dir: "models/date" # Directory for final ONNX models for 'date'
+  quantize: true
+  qat: false
+
+  # Miscellaneous
+  seed: 42
+  device: null # Auto-detect: cuda if available, else cpu
+  num_workers: 4
+
+mint:
+  # Data paths
+  data_root: "data/"
+  metadata_json_path: "metadata/metadata.json"
+  roi_json_path: "metadata/roi_coordinates.json"
+
+  # Model selection and architecture
+  model_type: "mint" # Must match the top-level key
+  backbone: "coin_clip_vit_b32"
+  img_size: [224, 224]
+
+  # Training hyperparameters
+  num_epochs: 30
+  batch_size: 64
+  lr: 0.0003
+  weight_decay: 0.05
+  optimizer_betas: [0.9, 0.999]
+
+  # LR Scheduler
+  lr_scheduler_eta_min: 0.000001
+  lr_warmup_epochs: 1
+
+  # Output and export
+  output_dir: "models/mint" # Directory for final ONNX models for 'mint'
+  quantize: true
+  qat: false
+
+  # Miscellaneous
+  seed: 42
+  device: null
+  num_workers: 4
+
+orientation:
+  # Data paths
+  data_root: "data/"
+  metadata_json_path: "metadata/metadata.json"
+  roi_json_path: "metadata/roi_coordinates.json" # May not be used if orientation uses full image
+
+  # Model selection and architecture
+  model_type: "orientation" # Must match the top-level key
+  backbone: "coin_clip_vit_b32"
+  img_size: [224, 224]
+
+  # Training hyperparameters
+  num_epochs: 30
+  batch_size: 64
+  lr: 0.0003
+  weight_decay: 0.05
+  optimizer_betas: [0.9, 0.999]
+
+  # LR Scheduler
+  lr_scheduler_eta_min: 0.000001
+  lr_warmup_epochs: 1
+
+  # Output and export
+  output_dir: "models/orientation" # Directory for final ONNX models for 'orientation'
+  quantize: true
+  qat: false
+
+  # Miscellaneous
+  seed: 42
+  device: null
+  num_workers: 4
