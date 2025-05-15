@@ -7,6 +7,7 @@ import os
 import json
 from pathlib import Path
 import shutil # For cleaning up test outputs
+from typing import Tuple, Optional, Dict # CORRECTED: Added Optional, Dict, Tuple
 
 import pytest # Pytest for test discovery and execution
 import onnx # For checking ONNX models
@@ -37,8 +38,11 @@ def cleanup_test_outputs():
         shutil.rmtree(OUTPUT_OTHER_DIR_BASE / "checkpoints")
     if (OUTPUT_OTHER_DIR_BASE / "training_logs").exists():
         shutil.rmtree(OUTPUT_OTHER_DIR_BASE / "training_logs")
-    if LABEL_MAP_PATH.exists():
-        LABEL_MAP_PATH.unlink()
+    if LABEL_MAP_PATH.exists(): # Check before unlinking
+        try:
+            LABEL_MAP_PATH.unlink()
+        except FileNotFoundError:
+            pass # Already gone or never created
     
     yield # This is where the testing happens
 
@@ -51,7 +55,10 @@ def cleanup_test_outputs():
     # if (OUTPUT_OTHER_DIR_BASE / "training_logs").exists():
     #     shutil.rmtree(OUTPUT_OTHER_DIR_BASE / "training_logs")
     # if LABEL_MAP_PATH.exists():
-    #     LABEL_MAP_PATH.unlink()
+    #     try:
+    #         LABEL_MAP_PATH.unlink()
+    #     except FileNotFoundError:
+    #         pass
 
 
 def find_onnx_files(directory: Path, model_type: str) -> Tuple[Optional[Path], Optional[Path]]:
@@ -72,85 +79,61 @@ def test_train_side_model_one_epoch(cleanup_test_outputs):
     verifies ONNX export, and checks model integrity.
     """
     # Command to run the training script
-    # Using python -m to correctly resolve modules from src
-    # Ensure the script is executable and Python can find it.
-    # The sys.executable gives the path to the current Python interpreter.
     command = [
-        sys.executable, # Path to python interpreter
-        "-m", "src.train_model", # Run src.train_model as a module
-        "-m", "side",            # model_key: side
+        sys.executable, 
+        "-m", "src.train_model", 
+        "-m", "side",            
         "--epochs", "1",
         "--device", "cpu",
-        "--data_examples",       # Use data_examples/
-        "--batch_size", "4",     # Small batch size for quick test
-        # No --resume
-        # Config file defaults to configs/training_config.yaml
+        "--data_examples",       
+        "--batch_size", "4",     
     ]
 
     print(f"Running command: {' '.join(command)}")
-
-    # Execute the training script
-    # Change working directory to project root so script can find configs/, data_examples/ etc.
     process = subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True, text=True, check=False)
 
-    # Print stdout and stderr for debugging, especially on failure
     print("STDOUT:")
     print(process.stdout)
     print("STDERR:")
     print(process.stderr)
 
-    # Assert that the script ran successfully
     assert process.returncode == 0, f"Training script failed with error: {process.stderr}"
 
-    # --- Assertions on Output Files ---
-    # Find the exact ONNX file names (they include timestamps)
     fp32_onnx_path, int8_onnx_path = find_onnx_files(OUTPUT_MODEL_DIR, "side")
 
     assert fp32_onnx_path is not None, "FP32 ONNX model file not found."
     assert fp32_onnx_path.exists(), f"FP32 ONNX file {fp32_onnx_path} does not exist."
     
-    # INT8 quantization can be tricky and might fail if calibration data is too small/problematic
-    # For a robust CI, we might make INT8 check optional or ensure calibration is solid.
-    # The spec requires verifying ONNX export, implying both.
     assert int8_onnx_path is not None, "INT8 ONNX model file not found (check logs for quantization errors)."
     assert int8_onnx_path.exists(), f"INT8 ONNX file {int8_onnx_path} does not exist."
 
-    # --- ONNX Model Checks (FP32) ---
     print(f"Checking FP32 ONNX model: {fp32_onnx_path}")
     onnx_model_fp32 = onnx.load(str(fp32_onnx_path))
-    onnx.checker.check_model(onnx_model_fp32) # This will raise if model is invalid
+    onnx.checker.check_model(onnx_model_fp32)
 
-    # Check output shape for FP32 model
-    # Assuming the output name is 'output' as defined in train_model.py
     output_info_fp32 = [info for info in onnx_model_fp32.graph.output if info.name == "output"]
     assert len(output_info_fp32) == 1, "Could not find 'output' in the FP32 ONNX graph."
     
     output_shape_fp32 = output_info_fp32[0].type.tensor_type.shape
-    # Shape is typically [batch_size_dim, num_classes_dim]
-    # We are interested in the num_classes_dim
-    # The dimensions can be DimParam (string like 'batch_size') or DimValue (integer)
     num_classes_dim_fp32 = None
-    if len(output_shape_fp32.dim) == 2: # Expecting 2D output [batch, classes]
-        num_classes_dim_fp32 = output_shape_fp32.dim[1].dim_value # dim_value is int
-        if num_classes_dim_fp32 == 0 and output_shape_fp32.dim[1].dim_param: # Dynamic dim
-             # This case is less likely for num_classes, but good to be aware of.
-             # For this test, we expect a fixed number of classes.
-             pass 
+    if len(output_shape_fp32.dim) == 2:
+        num_classes_dim_fp32 = output_shape_fp32.dim[1].dim_value
     assert num_classes_dim_fp32 == EXPECTED_SIDE_CLASSES, \
         f"FP32 ONNX model output shape for classes is {num_classes_dim_fp32}, expected {EXPECTED_SIDE_CLASSES}."
 
-    # Check metadata for label map in FP32 model
-    found_label_map_in_onnx = {}
+    found_label_map_in_onnx: Dict[str, str] = {} # Ensure type hint for clarity
     for prop in onnx_model_fp32.metadata_props:
-        if prop.key.startswith("label_"): # e.g., label_0, label_1
-            label_index = int(prop.key.split("_")[1])
-            found_label_map_in_onnx[str(label_index)] = prop.value # Store as string keys like JSON
-    
+        if prop.key.startswith("label_"):
+            try:
+                label_index_str = prop.key.split("_", 1)[1] # Split only on the first underscore
+                # No int conversion needed if keys in EXPECTED_SIDE_LABEL_MAP are already strings
+                found_label_map_in_onnx[label_index_str] = prop.value
+            except IndexError:
+                print(f"Warning: Could not parse label index from ONNX metadata key: {prop.key}")
+
     assert found_label_map_in_onnx == EXPECTED_SIDE_LABEL_MAP, \
-        f"Label map in FP32 ONNX metadata mismatch. Found: {found_label_map_in_onnx}, Expected: {EXPECTED_SIDE_LABEL_MAP}"
+        f"Label map in FP32 ONNX metadata mismatch.\nFound: {found_label_map_in_onnx}\nExpected: {EXPECTED_SIDE_LABEL_MAP}"
 
-
-    # --- ONNX Model Checks (INT8) ---
     print(f"Checking INT8 ONNX model: {int8_onnx_path}")
     onnx_model_int8 = onnx.load(str(int8_onnx_path))
     onnx.checker.check_model(onnx_model_int8)
@@ -165,28 +148,15 @@ def test_train_side_model_one_epoch(cleanup_test_outputs):
     assert num_classes_dim_int8 == EXPECTED_SIDE_CLASSES, \
         f"INT8 ONNX model output shape for classes is {num_classes_dim_int8}, expected {EXPECTED_SIDE_CLASSES}."
 
-    # --- Label Map JSON File Check ---
     assert LABEL_MAP_PATH.exists(), f"Label map JSON file not found at {LABEL_MAP_PATH}"
     with open(LABEL_MAP_PATH, 'r') as f:
         saved_label_map = json.load(f)
     
-    # Ensure keys in saved_label_map are strings if they were saved from int keys
-    # The spec for label_map.json implies string keys directly.
-    # Our current save_label_map in train_model.py saves with string keys.
     assert saved_label_map == EXPECTED_SIDE_LABEL_MAP, \
-        f"Saved label map content mismatch. Found: {saved_label_map}, Expected: {EXPECTED_SIDE_LABEL_MAP}"
+        f"Saved label map content mismatch.\nFound: {saved_label_map}\nExpected: {EXPECTED_SIDE_LABEL_MAP}"
 
-    # --- Check for expected log output (basic check) ---
     assert "Loaded PennyDataset" in process.stdout, "Dataset loading message not found in stdout."
-    assert f"Epoch 1/1" in process.stdout, "Epoch progress message not found in stdout."
-    assert f"Exported: {OUTPUT_MODEL_DIR.name}" in process.stdout, "ONNX export message not found in stdout."
-    # A more specific check for the filename might be too brittle due to timestamps.
-    # Checking for the directory part of the export message.
+    assert "Epoch 1/1" in process.stdout, "Epoch progress message not found in stdout."
+    assert f"{OUTPUT_MODEL_DIR.name}" in process.stdout, "ONNX export message directory part not found in stdout."
 
     print("test_train_side_model_one_epoch passed successfully.")
-
-# To run this test:
-# 1. Make sure pytest is installed (pip install pytest)
-# 2. Navigate to the project root directory (penny_ai/) in your terminal
-# 3. Run: pytest
-# Or: pytest tests/test_training.py
