@@ -6,8 +6,8 @@
 
 side:
   data_root: "data/"
-  metadata_json_path: "metadata.json"
-  roi_json_path: "roi.json"
+  metadata_json_path: "metadata/metadata.json"
+  roi_json_path: "metadata/roi_coordinates.json"
   model_type: "side"
   backbone: "coin_clip_vit_b32"
   img_size: [224, 224]
