@@ -20,7 +20,7 @@ side:
   # Training hyperparameters
   epochs: 20 # Side classification might train faster
   batch_size: 64
-  lr: 0.0003
+  learning_rate: 0.0003
   weight_decay: 0.05
   optimizer_betas: [0.9, 0.999]
 
@@ -85,7 +85,7 @@ mint:
   # Training hyperparameters
   epochs: 30
   batch_size: 64
-  lr: 0.0003
+  learning_rate: 0.0003
   weight_decay: 0.05
   optimizer_betas: [0.9, 0.999]
 
@@ -117,7 +117,7 @@ orientation:
   # Training hyperparameters
   epochs: 30
   batch_size: 64
-  lr: 0.0003
+  learning_rate: 0.0003
   weight_decay: 0.05
   optimizer_betas: [0.9, 0.999]
 
