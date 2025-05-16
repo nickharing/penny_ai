@@ -5,35 +5,23 @@
 # and select one of the top-level keys (e.g., "date", "mint", "orientation", "side").
 
 side:
-  # Data paths
   data_root: "data/"
-  metadata_json_path: "metadata/metadata.json"
-  # roi_json_path is not typically needed for side classification, as it uses the whole cropped penny.
-  # It's included for consistency but might be ignored by the dataset loader for this model_type.
-  roi_json_path: "metadata/roi_coordinates.json"
-
-  # Model selection and architecture
-  model_type: "side" # Must match the top-level key
+  metadata_json_path: "metadata.json"
+  roi_json_path: "roi.json"
+  model_type: "side"
   backbone: "coin_clip_vit_b32"
-  img_size: [224, 224] # Input image size for the model
-
-  # Training hyperparameters
-  epochs: 20 # Side classification might train faster
-  batch_size: 64
-  learning_rate: 0.0003
-  weight_decay: 0.05
+  img_size: [224, 224]
+  epochs: 20
+  batch_size: 32
+  learning_rate: 0.0001
+  weight_decay: 0.0
   optimizer_betas: [0.9, 0.999]
-
-  # LR Scheduler
-  lr_scheduler_eta_min: 0.000001
-  lr_warmup_epochs: 1
-
-  # Output and export
-  output_dir: "models/side" # Directory for final ONNX models for 'side'
-  quantize: true
+  lr_scheduler_eta_min: 0.0
+  lr_warmup_epochs: 0
+  lr_scheduler_T_max_epochs: null
+  output_dir: "output/models"
+  quantize: false
   qat: false
-
-  # Miscellaneous
   seed: 42
   device: null
   num_workers: 4
