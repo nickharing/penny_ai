@@ -18,7 +18,7 @@ side:
   img_size: [224, 224] # Input image size for the model
 
   # Training hyperparameters
-  num_epochs: 20 # Side classification might train faster
+  epochs: 20 # Side classification might train faster
   batch_size: 64
   lr: 0.0003
   weight_decay: 0.05
@@ -50,7 +50,7 @@ date:
   img_size: [224, 224]
 
   # Training hyperparameters
-  num_epochs: 30
+  epochs: 30
   batch_size: 64
   lr: 0.0003
   weight_decay: 0.05
@@ -83,7 +83,7 @@ mint:
   img_size: [224, 224]
 
   # Training hyperparameters
-  num_epochs: 30
+  epochs: 30
   batch_size: 64
   lr: 0.0003
   weight_decay: 0.05
@@ -115,7 +115,7 @@ orientation:
   img_size: [224, 224]
 
   # Training hyperparameters
-  num_epochs: 30
+  epochs: 30
   batch_size: 64
   lr: 0.0003
   weight_decay: 0.05
