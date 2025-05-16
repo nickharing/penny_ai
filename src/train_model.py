@@ -23,18 +23,46 @@ from .config_utils import load_config, TrainingConfig
 from .dataset      import PennyDataset
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 def clip_vit_b32(device: str = "cpu") -> nn.Module:
+    """
+    Return the vision encoder from a CoinClip model—handles both
+    HF transformer style (.vision_model) and legacy (.visual).
+    """
     wrapper = CoinClip(
         model_name="breezedeus/coin-clip-vit-base-patch32",
         device=device,
     )
-    logger.info("Loaded CoinClip backbone on %s", device)
-    return wrapper.model.visual
+    model = wrapper.model
+    logger.info("CoinClip model type: %s", type(model))
 
+    # locate the vision backbone
+    if hasattr(model, "vision_model"):
+        backbone = model.vision_model
+        logger.info("Using model.vision_model as backbone")
+    elif hasattr(model, "visual"):
+        backbone = model.visual
+        logger.info("Using model.visual as backbone")
+    else:
+        logger.error("Could not find vision backbone; attributes: %s", dir(model))
+        raise AttributeError("No vision component on CoinClip model")
+
+    # ensure an output_dim property exists
+    if not hasattr(backbone, "output_dim"):
+        if hasattr(backbone, "config") and hasattr(backbone.config, "hidden_size"):
+            backbone.output_dim = backbone.config.hidden_size
+        elif hasattr(backbone, "projection_dim"):
+            backbone.output_dim = backbone.projection_dim
+        else:
+            backbone.output_dim = 512
+        logger.info("Set backbone.output_dim = %d", backbone.output_dim)
+
+    logger.info("Loaded CoinClip backbone on %s", device)
+    return backbone
 
 def build_dataloaders(cfg: TrainingConfig) -> Tuple[DataLoader, DataLoader]:
     tfm = transforms.Compose([
@@ -46,20 +74,19 @@ def build_dataloaders(cfg: TrainingConfig) -> Tuple[DataLoader, DataLoader]:
 
     dl_train = DataLoader(
         ds_train,
-        batch_size=cfg.batch_size,
+        cfg.batch_size,
         shuffle=True,
         num_workers=cfg.num_workers,
         pin_memory=True,
     )
     dl_val = DataLoader(
         ds_val,
-        batch_size=cfg.batch_size,
+        cfg.batch_size,
         shuffle=False,
         num_workers=cfg.num_workers,
         pin_memory=True,
     )
     return dl_train, dl_val
-
 
 def export_onnx(model: nn.Module, dummy_input: torch.Tensor, path: Path):
     torch.onnx.export(
@@ -72,7 +99,6 @@ def export_onnx(model: nn.Module, dummy_input: torch.Tensor, path: Path):
     )
     logger.info("ONNX model saved to %s", path)
 
-
 def quantize_int8(fp32_path: Path, int8_path: Path):
     quantization.quantize_dynamic(
         str(fp32_path),
@@ -81,10 +107,8 @@ def quantize_int8(fp32_path: Path, int8_path: Path):
     )
     logger.info("INT8 quantized model saved to %s", int8_path)
 
-
 def run_training(cfg: TrainingConfig, device: torch.device) -> None:
     logger.info("Starting training: %s", cfg)
-    # reproducibility
     random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
@@ -140,7 +164,7 @@ def run_training(cfg: TrainingConfig, device: torch.device) -> None:
     torch.save(model.state_dict(), pth_path)
     logger.info("Saved PyTorch checkpoint to %s", pth_path)
 
-    # ONNX export
+    # ONNX export & quantization
     onnx_dir = cfg.output_dir / "onnx"
     onnx_dir.mkdir(parents=True, exist_ok=True)
     dummy = torch.randn(1, 3, cfg.img_size[0], cfg.img_size[1], device=device)

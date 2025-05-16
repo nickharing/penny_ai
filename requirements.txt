@@ -1,16 +1,20 @@
 # requirements.txt
 # Python package dependencies for the Penny AI project.
 
-# Core ML/DL Frameworks
-torch>=2.2.0
-torchvision>=0.17.0
-numpy<2.0.0
-
 # ONNX related packages
 onnx==1.16.0
 onnxruntime==1.18.0
-onnxruntime-tools==1.7.0
-protobuf==4.25.3 # Pinned to a version compatible with onnx 1.16 and other existing packages
+onnxruntime-tools>=1.12.0
+protobuf==4.25.3
+
+# Core ML/DL Frameworks
+torch>=2.2
+torchvision>=0.15.0
+numpy<2.0.0
+transformers>=4.0.0
+
+# Coin-CLIP: Using public PyPI package for local dev.
+coin_clip==0.1.0
 
 # Configuration and Utilities
 pyyaml>=6.0
@@ -21,9 +25,6 @@ scikit-learn>=1.6.1
 pandas>=2.2.0
 Pillow>=10.0
 
-# Coin-CLIP: Using public PyPI package for local dev.
-coin_clip>=0.1.0 # Published by breezedeus.
-# NOTE: CI installs a specific version from GitHub – see .github/workflows/ci_tests.yml
 
 # TODO: If/when we maintain an IMX500-safe custom fork for general use, switch to the line below.
 # coin-clip @ git+https://github.com/nickharing/coin_clip.git@imx500
