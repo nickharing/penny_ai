@@ -62,7 +62,7 @@ def run_training(cfg: TrainingConfig, device: torch.device) -> None:
     head      = nn.Linear(backbone.output_dim, n_classes)
     model     = nn.Sequential(backbone, head).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), learning_rate=cfg.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
     dl_train, dl_val = build_dataloaders(cfg)
