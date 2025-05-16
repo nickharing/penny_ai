@@ -4,6 +4,7 @@
 # Core ML/DL Frameworks
 torch>=2.2.0
 torchvision>=0.17.0
+numpy<2.0.0
 
 # ONNX related packages
 onnx==1.16.0
