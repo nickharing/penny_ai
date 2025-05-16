@@ -13,23 +13,26 @@ import torch
 from src.config_utils import load_config
 from src.train_model   import run_training
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def test_one_epoch_cpu(tmp_path: Path):
+    # Load real metadata/metadata.json from the repo
     cfg = load_config("side")
     cfg.epochs     = 1
     cfg.batch_size = 4
     cfg.output_dir = tmp_path
 
+    # Run training (PyTorch checkpoint + ONNX export)
     run_training(cfg, torch.device("cpu"))
 
-    # verify ONNX exports
+    # Verify ONNX FP32 export exists
     onnx_dir = tmp_path / "onnx"
     fp32 = onnx_dir / "side_fp32.onnx"
-    int8 = onnx_dir / "side_int8.onnx"
     assert fp32.exists(), "FP32 ONNX model not created"
-    # since quantize defaults false in tests, int8 may not exist
+
     logger.info("Smoke test completed; FP32 ONNX at %s", fp32)
