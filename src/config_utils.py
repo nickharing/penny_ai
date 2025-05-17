@@ -63,10 +63,17 @@ class TrainingConfig:
 
     def __post_init__(self) -> None:
         # Resolve and create directories
+        # All paths in YAML are treated as relative to project_root
         self.data_root          = (self.project_root / self.data_root).expanduser().resolve()
         self.metadata_json_path = (self.project_root / self.metadata_json_path).expanduser().resolve()
         self.roi_json_path      = (self.project_root / self.roi_json_path).expanduser().resolve()
         self.output_dir         = (self.project_root / self.output_dir).expanduser().resolve()
+
+        # Log the resolved paths for debugging
+        logger.info("Resolved paths:")
+        logger.info("  data_root: %s", self.data_root)
+        logger.info("  metadata_json_path: %s", self.metadata_json_path)
+        logger.info("  roi_json_path: %s", self.roi_json_path)
 
         self.checkpoint_dir = self.output_dir / "checkpoints"
         self.label_map_dir  = self.output_dir / "label_maps"

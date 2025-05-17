@@ -28,46 +28,54 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
-def clip_vit_b32(device: str = "cpu") -> nn.Module:
-    """
-    Return the vision encoder from a CoinClip model—handles both
-    HF transformer style (.vision_model) and legacy (.visual).
-    """
-    wrapper = CoinClip(
-        model_name="breezedeus/coin-clip-vit-base-patch32",
-        device=device,
-    )
-    model = wrapper.model
-    logger.info("CoinClip model type: %s", type(model))
-
-    # locate the vision backbone
-    if hasattr(model, "vision_model"):
-        backbone = model.vision_model
-        logger.info("Using model.vision_model as backbone")
-    elif hasattr(model, "visual"):
-        backbone = model.visual
-        logger.info("Using model.visual as backbone")
-    else:
-        logger.error("Could not find vision backbone; attributes: %s", dir(model))
-        raise AttributeError("No vision component on CoinClip model")
-
-    # ensure an output_dim property exists
-    if not hasattr(backbone, "output_dim"):
-        if hasattr(backbone, "config") and hasattr(backbone.config, "hidden_size"):
-            backbone.output_dim = backbone.config.hidden_size
-        elif hasattr(backbone, "projection_dim"):
-            backbone.output_dim = backbone.projection_dim
-        else:
-            backbone.output_dim = 512
-        logger.info("Set backbone.output_dim = %d", backbone.output_dim)
-
-    logger.info("Loaded CoinClip backbone on %s", device)
-    return backbone
+class CoinClipWrapper(nn.Module):
+    """Wrapper around CoinClip vision model to handle BaseModelOutputWithPooling."""
+    def __init__(self, device: str = "cpu"):
+        super().__init__()
+        self.wrapper = CoinClip(
+            model_name="breezedeus/coin-clip-vit-base-patch32",
+            device=device,
+        )
+        logger.info(f"CoinClip model type: {type(self.wrapper.model)}")
+        
+        # Find the right property to extract from model output
+        # Try to make a forward pass to see what we get back
+        try:
+            with torch.no_grad():
+                dummy = torch.zeros(1, 3, 224, 224).to(device)
+                output = self.wrapper.model.vision_model(dummy)
+                logger.info(f"Vision model output type: {type(output)}")
+                
+                # Check if it has a pooler_output attribute
+                if hasattr(output, 'pooler_output'):
+                    logger.info(f"Using pooler_output with shape {output.pooler_output.shape}")
+                    self.extract_fn = lambda x: x.pooler_output
+                # Check if it has a last_hidden_state attribute
+                elif hasattr(output, 'last_hidden_state'):
+                    logger.info(f"Using last_hidden_state[:,0] with shape {output.last_hidden_state[:,0].shape}")
+                    self.extract_fn = lambda x: x.last_hidden_state[:,0]
+                else:
+                    raise AttributeError(f"Can't determine how to extract features from {type(output)}")
+                
+                # Check output shape to set output_dim
+                test_output = self.forward(dummy)
+                self.output_dim = test_output.shape[-1]
+                logger.info(f"Set output_dim = {self.output_dim}")
+        except Exception as e:
+            logger.error(f"Error during model initialization: {e}")
+            raise
+    
+    def forward(self, x):
+        output = self.wrapper.model.vision_model(x)
+        # Extract the right tensor from the output object
+        return self.extract_fn(output)
 
 def build_dataloaders(cfg: TrainingConfig) -> Tuple[DataLoader, DataLoader]:
     tfm = transforms.Compose([
         transforms.Resize(cfg.img_size),
         transforms.ToTensor(),
+        # Add normalization for ImageNet-trained backbone
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     ds_train = PennyDataset(cfg, image_transform=tfm, subset="train")
     ds_val   = PennyDataset(cfg, image_transform=tfm, subset="val")
@@ -113,9 +121,9 @@ def run_training(cfg: TrainingConfig, device: torch.device) -> None:
     torch.manual_seed(cfg.seed)
 
     n_classes = len(cfg.label_map)
-    backbone  = clip_vit_b32(device=str(device))
-    head      = nn.Linear(backbone.output_dim, n_classes)
-    model     = nn.Sequential(backbone, head).to(device)
+    backbone = CoinClipWrapper(device=str(device))
+    head = nn.Linear(backbone.output_dim, n_classes)
+    model = nn.Sequential(backbone, head).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
