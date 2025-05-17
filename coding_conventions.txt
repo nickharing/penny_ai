@@ -71,12 +71,7 @@ Separate each group with a blank line; avoid `from module import *`.
   ```
 * Paths configured via YAML (`configs/paths.yaml`) and loaded with `PyYAML`, use only relative paths in code.
 
-## 10. Testing
-
-* Place tests in `/tests/`, follow `pytest` conventions.
-* Aim for at least one test per public function.
-
-## 11. Version Control
+## 10. Version Control
 
 * Update the `# Version:` field in module header for significant changes.
 * Tag commits that correspond to new model releases.
