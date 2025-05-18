@@ -1,136 +1,122 @@
-# src/dataset.py
-# Purpose: PennyDataset supporting type filtering, ROI cropping, and transforms
-# Author:  <Your Name>
-# Date:    2025-05-17
-# Dependencies: torch, torchvision, PIL, config_utils, logging
-
-import json
-import logging
-import random
+# dataset.py
+# Purpose: Dataset for penny image classification tasks using ModelConfig
+import json, logging, random
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
-
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-
-from .config_utils import TrainingConfig
+from .config_utils import load_config, ModelConfig
 
 logger = logging.getLogger(__name__)
 
 class PennyDataset(Dataset):
-    """
-    Dataset for Penny classification tasks with split support and optional ROI cropping.
-
-    Args:
-        cfg: TrainingConfig instance with paths and settings.
-        image_transform: Callable transform to apply to PIL.Image.
-        subset: One of 'train', 'val', or 'test'.
-    """
-    SPLIT_RATIOS: Tuple[float, float, float] = (0.8, 0.1, 0.1)
-
-    def __init__(
-        self,
-        cfg: TrainingConfig,
-        image_transform: Optional[Callable] = None,
-        subset: str = "train",
-    ) -> None:
-        super().__init__()
+    def __init__(self, cfg: ModelConfig, model: str, subset: str = 'train'):
         self.cfg = cfg
-        self.subset = subset.lower()
-        if self.subset not in {"train", "val", "test"}:
-            raise ValueError("subset must be one of {'train','val','test'}")
-        self.transform = image_transform or (lambda x: x)
+        self.model = model
+        self.subset = subset
+        # build transform
+        tfms = [transforms.Resize(tuple(cfg.image_size)), transforms.ToTensor()]
+        tfms.append(transforms.Normalize(cfg.normalization, cfg.std))
+        if cfg.apply_augmentations and subset=='train':
+            aug = []
+            if cfg.random_horizontal_flip: aug.append(transforms.RandomHorizontalFlip())
+            if cfg.rotation_degrees: aug.append(transforms.RandomRotation(cfg.rotation_degrees))
+            tfms = aug + tfms
+        self.transform = transforms.Compose(tfms)
+        # load metadata
+        with open(cfg.paths.metadata, 'r') as f: all_meta = json.load(f)
+        # filter by model type
+        if model=='side': items=[m for m in all_meta if m['type']=='penny']
+        elif model in ['date','mint']: items=[m for m in all_meta if m['type']=='roi']
+        else: # Potentially handle unknown model type or use all_meta as a fallback
+            logger.warning(f"Unknown model type '{model}' for filtering. Using all metadata items.")
+            items=all_meta
 
-        # Load full metadata
-        logger.info("Loading metadata from %s", cfg.metadata_json_path)
-        with open(cfg.metadata_json_path, "r", encoding="utf-8") as fh:
-            all_meta: List[Dict] = json.load(fh)
+        if not items:
+            logger.warning(f"No items found after filtering for model '{model}' and type. Dataset will be empty.")
+            self.items = []
+            self.label_to_idx = {}
+            self.roi_definitions = {} # Ensure attribute exists even if empty
+            return
 
-        # Filter by model_type
-        if cfg.model_type == "side":
-            meta = [m for m in all_meta if m.get("type") == "penny"]
-        elif cfg.model_type in {"date", "mint"}:
-            meta = [m for m in all_meta if m.get("type") == "roi"]
-        else:
-            meta = all_meta
-
-        # Shuffle and split
-        random.seed(cfg.seed)
-        random.shuffle(meta)
-        n = len(meta)
-        n_train = int(self.SPLIT_RATIOS[0] * n)
-        n_val = int(self.SPLIT_RATIOS[1] * n)
-        splits = {
-            "train": meta[:n_train],
-            "val":   meta[n_train:n_train + n_val],
-            "test":  meta[n_train + n_val:],
-        }
-        self.items = splits[self.subset]
-
-        # Load ROI definitions if needed
-        if cfg.model_type in {"date", "mint"} and cfg.roi_json_path.exists():
-            logger.info("Loading ROI definitions from %s", cfg.roi_json_path)
+        random.seed(cfg.seed); random.shuffle(items)
+        # split
+        n=len(items); t=int(0.8*n); v=int(0.1*n)
+        splits={'train':items[:t],'val':items[t:t+v],'test':items[t+v:]}
+        self.items=splits[subset]
+        # build file map
+        self.file_map = {}
+        for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif']: # Add relevant image extensions
+            for p in Path(cfg.paths.data_root).rglob(ext):
+                self.file_map[p.name] = p
+        # label map
+        labels=sorted({m.get(model,'unknown') for m in self.items})
+        self.label_to_idx={lbl:i for i,lbl in enumerate(labels)}
+        # Load ROI definitions once if needed
+        self.roi_definitions = {}
+        if self.model in ['date', 'mint'] and Path(self.cfg.paths.roi).exists():
             try:
-                with open(cfg.roi_json_path, "r", encoding="utf-8") as fh:
-                    self.roi_defs: Dict[str, List[int]] = json.load(fh)
-            except Exception as e:
-                logger.warning("Could not load ROI JSON: %s", e)
-                self.roi_defs = {}
-        else:
-            self.roi_defs = {}
+                with open(self.cfg.paths.roi, 'r') as f:
+                    self.roi_definitions = json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode ROI JSON from {self.cfg.paths.roi}")
+            except FileNotFoundError:
+                 logger.error(f"ROI file not found at {self.cfg.paths.roi} though model type suggests it's needed.")
+        elif self.model in ['date', 'mint'] and not Path(self.cfg.paths.roi).exists():
+            logger.warning(f"ROI file {self.cfg.paths.roi} not found, but model type is {self.model}. ROI cropping will be skipped.")
 
-        # Build label ↔ index map
-        self._build_label_map()
+    def __len__(self): return len(self.items)
 
-    def _build_label_map(self) -> None:
-        """Populate cfg.label_map based on model_type and items."""
-        if self.cfg.model_type == "side":
-            labels = sorted({item.get("side", "unknown") for item in self.items})
-        elif self.cfg.model_type == "date":
-            labels = sorted({item.get("year", "unknown") for item in self.items})
-        elif self.cfg.model_type == "mint":
-            labels = sorted({item.get("mint", "unknown") for item in self.items})
-        else:
-            labels = sorted({item.get(self.cfg.model_type, "unknown") for item in self.items})
-
-        idx2lbl = {i: lbl for i, lbl in enumerate(labels)}
-        self.label_to_idx = {v: k for k, v in idx2lbl.items()}
-
-        if not self.cfg.label_map:
-            self.cfg.label_map.update(idx2lbl)
-            logger.info("Label map built: %s", idx2lbl)
-
-    def __len__(self) -> int:
-        return len(self.items)
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+    def __getitem__(self, idx):
         sample = self.items[idx]
-        img_path = Path(self.cfg.data_root) / sample["filename"]
-        if not img_path.exists():
-            raise FileNotFoundError(f"Image not found: {img_path}")
+        fname_meta = sample['filename'] # Filename from metadata, e.g., "penny_reverse_w_0098 - Copy.jpg"
 
-        image = Image.open(img_path).convert("RGB")
+        # Attempt 1: Direct lookup in file_map using the exact basename from metadata
+        # This assumes fname_meta is a basename, which aligns with "metadata formatting will not change"
+        # if that implies filenames in metadata don't have subpaths.
+        img_path = self.file_map.get(Path(fname_meta).name)
 
-        # Crop to ROI for date/mint models
-        if self.cfg.model_type in {"date", "mint"}:
-            coords = self.roi_defs.get(sample["filename"])
-            if coords:
-                x, y, w, h = coords
-                image = image.crop((x, y, x + w, y + h))
+        # Attempt 2: If not found and metadata filename contains " - Copy.jpg",
+        # try looking up the version without " - Copy.jpg"
+        if not img_path and " - Copy.jpg" in fname_meta:
+            fname_stripped = Path(fname_meta).name.replace(" - Copy.jpg", ".jpg")
+            img_path = self.file_map.get(fname_stripped)
+            if img_path:
+                logger.debug(f"Found image using stripped name '{fname_stripped}' for metadata entry '{fname_meta}'")
+        # Attempt 2b: Handle ".png" as well for " - Copy.png"
+        elif not img_path and " - Copy.png" in fname_meta: # Use elif to avoid re-stripping if .jpg version was already tried
+            fname_stripped = Path(fname_meta).name.replace(" - Copy.png", ".png")
+            img_path = self.file_map.get(fname_stripped)
+            if img_path:
+                logger.debug(f"Found image using stripped name '{fname_stripped}' for metadata entry '{fname_meta}'")
 
-        image = self.transform(image)
+        if not img_path or not img_path.exists():
+            error_msg_detail = f"metadata filename: '{fname_meta}'. Tried direct map lookup for '{Path(fname_meta).name}'"
+            if " - Copy" in fname_meta: error_msg_detail += f" and stripped version '{fname_meta.replace(' - Copy.jpg', '.jpg').replace(' - Copy.png', '.png')}'."
+            logger.error(f"Image file not found for metadata entry: {sample}. {error_msg_detail}")
+            raise FileNotFoundError(f"Image not found. {error_msg_detail}")
 
-        # Determine label string
-        if self.cfg.model_type == "side":
-            label_str = sample.get("side", "unknown")
-        elif self.cfg.model_type == "date":
-            label_str = sample.get("year", "unknown")
-        elif self.cfg.model_type == "mint":
-            label_str = sample.get("mint", "unknown")
-        else:
-            label_str = sample.get(self.cfg.model_type, "unknown")
+        image=Image.open(img_path).convert('RGB')
+        # ROI crop
+        if self.model in ['date','mint']:
+            # Use the same logic for the ROI key as for finding the image in file_map
+            # if metadata filenames might have " - Copy" but ROI keys don't.
+            roi_key = Path(fname_meta).name 
+            if " - Copy.jpg" in roi_key:
+                roi_key = roi_key.replace(" - Copy.jpg", ".jpg")
+            elif " - Copy.png" in roi_key:
+                roi_key = roi_key.replace(" - Copy.png", ".png")
 
-        label_id = self.label_to_idx.get(label_str, 0)
-        return image, label_id
+            coords=self.roi_definitions.get(roi_key)
+            if coords: x,y,w,h=coords; image=image.crop((x,y,x+w,y+h))
+            elif self.roi_definitions: # Only warn if ROI defs were loaded but this specific image's ROI is missing
+                logger.warning(f"ROI coordinates not found for '{roi_key}' in loaded ROI definitions. Full image used.")
+
+        img=self.transform(image)
+        label_str = sample.get(self.model) # Simplified label retrieval
+        label_idx = self.label_to_idx.get(label_str)
+        if label_idx is None:
+            logger.error(f"Label '{label_str}' for model '{self.model}' in sample '{fname_meta}' not found in label_to_idx. Mapped labels: {self.label_to_idx}")
+            raise KeyError(f"Label '{label_str}' not found in label map. Check metadata and dataset initialization.")
+        return img, label_idx

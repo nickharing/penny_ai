@@ -1,113 +1,169 @@
-# src/config_utils.py
-# Purpose: Load training configuration and provide TrainingConfig dataclass
-# Author:  <Your Name>
-# Date:    2025-05-16
-# Dependencies: pyyaml
+# config_utils.py
+# Purpose: Load and merge training configuration for different coin classification models
+# Author: Nick Haring
+# Date: 2025-05-17
+# Dependencies: yaml, dataclasses, pathlib, typing, torch
 
-import logging
 import yaml
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+import torch
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+CONFIG_PATH = Path(__file__).parent.parent / "configs" / "training_config.yaml"
 
-# --------------------------------------------------------------------------- #
-PROJECT_ROOT     = Path(__file__).resolve().parents[1]
-DEFAULT_CFG_PATH = PROJECT_ROOT / "configs" / "training_config.yaml"
-
-# --------------------------------------------------------------------------- #
 @dataclass
-class TrainingConfig:
-    # Data paths
-    data_root:          Path
-    metadata_json_path: Path
-    roi_json_path:      Path
+class PathsConfig:
+    data_root: Path
+    metadata: Path
+    roi: Path
+    models: Path
+    logs: Path
+    exports: Path
 
-    # Model selection & architecture
-    model_type:         str                 = "side"
-    backbone:           str                 = "coin_clip_vit_b32"
+@dataclass
+class DataDefaults:
+    normalization: Dict[str, List[float]]
+    roi_padding: Dict[str, Dict[str, float]]
 
-    # Preprocessing
-    img_size:           Tuple[int, int]     = (224, 224)
+@dataclass
+class AugmentationDefaults:
+    apply_augmentations: bool
+    random_horizontal_flip: bool
+    rotation_degrees: float
+    translate: List[float]
+    scale: List[float]
+    shear: float
+    random_erasing_prob: float
+    random_erasing_scale: List[float]
+    random_erasing_ratio: List[float]
+    gaussian_noise_std: float
 
-    # Training hyperparameters
-    epochs:             int                 = 20
-    batch_size:         int                 = 32
-    learning_rate:      float               = 1e-4
-    weight_decay:       float               = 0.0
-    optimizer_betas:    Tuple[float, float] = (0.9, 0.999)
+@dataclass
+class TrainingDefaults:
+    epochs: int
+    batch_size: int
+    learning_rate: float
+    optimizer: str
+    weight_decay: float
+    scheduler: str
+    warmup_epochs: int
+    early_stopping: Dict[str, Any]
+    save_every_n_epochs: int
 
-    # LR Scheduler
-    lr_scheduler_eta_min:     float          = 0.0
-    lr_warmup_epochs:         int            = 0
-    lr_scheduler_T_max_epochs: Optional[int] = None
+@dataclass
+class ExecutionDefaults:
+    seed: int
+    device: torch.device
+    num_workers: int
 
-    # Output & quantization
-    output_dir:         Path                = Path("output/models")
-    quantize:           bool                = False
-    qat:                bool                = False
+@dataclass
+class ModelConfig:
+    model_type: str # Added to store the name of the model configuration
+    # Paths
+    paths: PathsConfig
+    # Data settings
+    image_size: List[int]
+    normalization: List[float]
+    std: List[float]
+    roi_padding: Dict[str, Dict[str, float]]
+    # Augmentations
+    apply_augmentations: bool
+    random_horizontal_flip: bool
+    rotation_degrees: float
+    translate: List[float]
+    scale: List[float]
+    shear: float
+    random_erasing_prob: float
+    random_erasing_scale: List[float]
+    random_erasing_ratio: List[float]
+    gaussian_noise_std: float
+    # Training
+    epochs: int
+    batch_size: int
+    learning_rate: float
+    optimizer: str
+    weight_decay: float
+    scheduler: str
+    warmup_epochs: int
+    early_stopping: Dict[str, Any]
+    save_every_n_epochs: int
 
-    # Misc
-    seed:               int                 = 42
-    device:             Optional[str]       = None
-    num_workers:        int                 = 4
+    # Execution
+    seed: int
+    device: torch.device
+    num_workers: int
 
-    # Derived (not from YAML)
-    project_root:       Path                = PROJECT_ROOT
-    checkpoint_dir:     Path                = field(init=False)
-    label_map_dir:      Path                = field(init=False)
-    label_map:          Dict[int, str]      = field(default_factory=dict)
 
-    def __post_init__(self) -> None:
-        # Resolve and create directories
-        # All paths in YAML are treated as relative to project_root
-        self.data_root          = (self.project_root / self.data_root).expanduser().resolve()
-        self.metadata_json_path = (self.project_root / self.metadata_json_path).expanduser().resolve()
-        self.roi_json_path      = (self.project_root / self.roi_json_path).expanduser().resolve()
-        self.output_dir         = (self.project_root / self.output_dir).expanduser().resolve()
-
-        # Log the resolved paths for debugging
-        logger.info("Resolved paths:")
-        logger.info("  data_root: %s", self.data_root)
-        logger.info("  metadata_json_path: %s", self.metadata_json_path)
-        logger.info("  roi_json_path: %s", self.roi_json_path)
-
-        self.checkpoint_dir = self.output_dir / "checkpoints"
-        self.label_map_dir  = self.output_dir / "label_maps"
-        for d in (self.output_dir, self.checkpoint_dir, self.label_map_dir):
-            d.mkdir(parents=True, exist_ok=True)
-        logger.info("Configuration initialized with output_dir=%s", self.output_dir)
-
-def load_config(
-    model_key:  str,
-    *,
-    config_path: Path = DEFAULT_CFG_PATH
-) -> TrainingConfig:
+def load_config(model: str) -> ModelConfig:
     """
-    Load the YAML, select section `model_key`, normalize fields,
-    and return a TrainingConfig instance.
+    Load configuration for a given model by merging global defaults with per-model overrides.
+    Args:
+        model: One of the keys under 'models' in the YAML (e.g., 'side', 'date', etc.).
+    Returns:
+        ModelConfig with all parameters resolved.
     """
-    logger.info("Loading config for model_key=%s from %s", model_key, config_path)
-    with open(config_path, "r", encoding="utf-8") as fh:
-        full_cfg: Dict[str, Any] = yaml.safe_load(fh)
+    cfg_raw = yaml.safe_load(CONFIG_PATH.read_text())
+    # Paths
+    paths_raw = cfg_raw.get("paths", {})
+    paths = PathsConfig(
+        data_root=Path(paths_raw["data_root"]).resolve(),
+        metadata=Path(paths_raw["metadata"]).resolve(),
+        roi=Path(paths_raw["roi"]).resolve(),
+        models=Path(paths_raw["models"]).resolve(),
+        logs=Path(paths_raw["logs"]).resolve(),
+        exports=Path(paths_raw["exports"]).resolve(),
+    )
+    # Global defaults
+    defaults = cfg_raw.get("defaults", {})
+    data_def = defaults.get("data", {})
+    aug_def = defaults.get("augmentation", {})
+    train_def = defaults.get("training", {})
+    exec_def = defaults.get("execution", {})
+    # Per-model overrides
+    model_raw = cfg_raw.get("models", {}).get(model, {})
+    # Image size
+    image_size = model_raw.get("data", {}).get("image_size")
+    # Training overrides
+    tr_ovr = model_raw.get("training", {})
+    # Augmentation overrides
+    aug_ovr = model_raw.get("augmentation", {})
+    # Execution: use global
 
-    if model_key not in full_cfg:
-        raise KeyError(f"model_key '{model_key}' not found in {config_path}")
+    # Resolve device
+    dev_cfg = exec_def.get("device", "auto")
+    if dev_cfg in ("auto", None):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(dev_cfg)
 
-    cfg_dict = full_cfg[model_key].copy()
-
-    # require `learning_rate` (no alias), convert lists → tuples
-    if "img_size" in cfg_dict and isinstance(cfg_dict["img_size"], list):
-        cfg_dict["img_size"] = tuple(cfg_dict["img_size"])
-    if "optimizer_betas" in cfg_dict and isinstance(cfg_dict["optimizer_betas"], list):
-        cfg_dict["optimizer_betas"] = tuple(cfg_dict["optimizer_betas"])
-
-    # convert path-like strings to Path
-    for key in ("data_root", "metadata_json_path", "roi_json_path", "output_dir"):
-        if key in cfg_dict:
-            cfg_dict[key] = Path(cfg_dict[key])
-
-    return TrainingConfig(**cfg_dict)
+    return ModelConfig(
+        model_type=model, # Store the model type
+        paths=paths,
+        image_size=image_size if image_size else data_def.get("image_size", []),
+        normalization=data_def.get("normalization", {}).get("mean", []),
+        std=data_def.get("normalization", {}).get("std", []),
+        roi_padding=data_def.get("roi_padding", {}),
+        apply_augmentations=aug_ovr.get("apply_augmentations", aug_def.get("apply_augmentations", False)),
+        random_horizontal_flip=aug_ovr.get("random_horizontal_flip", aug_def.get("random_horizontal_flip", False)),
+        rotation_degrees=aug_ovr.get("rotation_degrees", aug_def.get("rotation_degrees", 0)),
+        translate=aug_ovr.get("translate", aug_def.get("translate", [0,0])),
+        scale=aug_ovr.get("scale", aug_def.get("scale", [1,1])),
+        shear=aug_ovr.get("shear", aug_def.get("shear", 0)),
+        random_erasing_prob=aug_ovr.get("random_erasing_prob", aug_def.get("random_erasing_prob", 0)),
+        random_erasing_scale=aug_ovr.get("random_erasing_scale", aug_def.get("random_erasing_scale", [0,0])),
+        random_erasing_ratio=aug_ovr.get("random_erasing_ratio", aug_def.get("random_erasing_ratio", [1,1])),
+        gaussian_noise_std=aug_ovr.get("gaussian_noise_std", aug_def.get("gaussian_noise_std", 0)),
+        epochs=tr_ovr.get("epochs", train_def.get("epochs", 1)),
+        batch_size=tr_ovr.get("batch_size", train_def.get("batch_size", 1)),
+        learning_rate=tr_ovr.get("learning_rate", train_def.get("learning_rate", 1e-3)),
+        optimizer=tr_ovr.get("optimizer", train_def.get("optimizer", "adam")),
+        weight_decay=tr_ovr.get("weight_decay", train_def.get("weight_decay", 0)),
+        scheduler=tr_ovr.get("scheduler", train_def.get("scheduler", None)),
+        warmup_epochs=tr_ovr.get("warmup_epochs", train_def.get("warmup_epochs", 0)),
+        early_stopping=tr_ovr.get("early_stopping", train_def.get("early_stopping", {})),
+        save_every_n_epochs=tr_ovr.get("save_every_n_epochs", train_def.get("save_every_n_epochs", 1)),
+        seed=exec_def.get("seed", 0),
+        device=device,
+        num_workers=exec_def.get("num_workers", 0),
+    )

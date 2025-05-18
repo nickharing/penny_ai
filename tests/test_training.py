@@ -25,13 +25,14 @@ def test_one_epoch_with_real_data(tmp_path: Path):
     Run a single training epoch on the actual data_examples set,
     using the committed metadata/metadata.json and roi_coordinates.json.
     """
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[1] # Not needed if using test_paths from config
 
-    # Load config & override to point at real assets
+   # Load config & override to point at real assets
     cfg = load_config("side")
     cfg.data_root          = repo_root / "data_examples"
     cfg.metadata_json_path = repo_root / "metadata" / "metadata.json"
     cfg.roi_json_path      = repo_root / "metadata" / "roi_coordinates.json"
+
     cfg.output_dir         = tmp_path / "output"
 
     # Minimal training
