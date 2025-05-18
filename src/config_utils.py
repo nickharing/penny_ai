@@ -95,17 +95,19 @@ class ModelConfig:
     num_workers: int
 
 
-def load_config(model: str) -> ModelConfig:
+def load_config(model: str, use_test_paths: bool = False) -> ModelConfig:
     """
     Load configuration for a given model by merging global defaults with per-model overrides.
     Args:
         model: One of the keys under 'models' in the YAML (e.g., 'side', 'date', etc.).
+        use_test_paths: If True, load paths from the 'test_paths' section of the YAML.
     Returns:
         ModelConfig with all parameters resolved.
     """
     cfg_raw = yaml.safe_load(CONFIG_PATH.read_text())
     # Paths
-    paths_raw = cfg_raw.get("paths", {})
+    paths_section_key = "test_paths" if use_test_paths else "paths"
+    paths_raw = cfg_raw.get(paths_section_key, cfg_raw.get("paths", {})) # Fallback to main paths if selected section missing
     paths = PathsConfig(
         data_root=Path(paths_raw["data_root"]).resolve(),
         metadata=Path(paths_raw["metadata"]).resolve(),
@@ -167,3 +169,12 @@ def load_config(model: str) -> ModelConfig:
         device=device,
         num_workers=exec_def.get("num_workers", 0),
     )
+
+    # Validate existence of essential input paths
+    # Output paths (models, logs, exports) are created by scripts, so not checked here.
+    # The use_test_paths flag in the test script will ensure these point to tmp_path for outputs.
+    essential_input_paths = {"data_root": paths.data_root, "metadata": paths.metadata, "roi": paths.roi}
+    for name, p in essential_input_paths.items():
+        if not p.exists():
+            raise FileNotFoundError(f"Config path '{name}' from '{paths_section_key}' section -> {p} does not exist or is not accessible.")
+    return model_config_instance

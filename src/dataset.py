@@ -45,11 +45,28 @@ class PennyDataset(Dataset):
         n=len(items); t=int(0.8*n); v=int(0.1*n)
         splits={'train':items[:t],'val':items[t:t+v],'test':items[t+v:]}
         self.items=splits[subset]
-        # build file map
+        
+        # build file map, scoped to the relevant subfolder for the model
         self.file_map = {}
-        for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif']: # Add relevant image extensions
-            for p in Path(cfg.paths.data_root).rglob(ext):
-                self.file_map[p.name] = p
+        # Define a mapping from model type to expected subfolder name
+        model_to_subfolder = {
+            "side": "obverse", # Assuming 'side' model uses 'obverse' images, adjust if different
+            "date": "date",
+            "mint": "mint_mark", # Or "mint" if that's the folder name
+            "orientation": "reverse" # Assuming 'orientation' model uses 'reverse' images
+        }
+        subfolder_name = model_to_subfolder.get(model)
+        if subfolder_name:
+            base_path = Path(cfg.paths.data_root) / subfolder_name
+            if base_path.exists() and base_path.is_dir():
+                for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif']:
+                    for p in base_path.rglob(ext):
+                        self.file_map[p.name] = p
+            else:
+                logger.warning(f"Expected subfolder '{subfolder_name}' for model '{model}' not found in {cfg.paths.data_root}. File map may be empty.")
+        else:
+            logger.warning(f"No specific subfolder mapping for model '{model}'. File map may be incomplete or overly broad if relying on a global scan (not implemented here).")
+
         # label map
         labels=sorted({m.get(model,'unknown') for m in self.items})
         self.label_to_idx={lbl:i for i,lbl in enumerate(labels)}

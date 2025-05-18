@@ -25,15 +25,17 @@ def test_one_epoch_with_real_data(tmp_path: Path):
     Run a single training epoch on the actual data_examples set,
     using the committed metadata/metadata.json and roi_coordinates.json.
     """
-    repo_root = Path(__file__).resolve().parents[1] # Not needed if using test_paths from config
+    # repo_root = Path(__file__).resolve().parents[1] # No longer needed
 
-   # Load config & override to point at real assets
-    cfg = load_config("side")
-    cfg.data_root          = repo_root / "data_examples"
-    cfg.metadata_json_path = repo_root / "metadata" / "metadata.json"
-    cfg.roi_json_path      = repo_root / "metadata" / "roi_coordinates.json"
+    # Load config using the 'test_paths' section for inputs
+    # The use_test_paths flag was removed from load_config, so we ensure test_paths are set in training_config.yaml
+    # and then override output paths here for test isolation.
+    cfg = load_config("side", use_test_paths=True) # Ensures cfg.paths.data_root etc. point to test data
 
-    cfg.output_dir         = tmp_path / "output"
+    # Override output paths to use the temporary directory provided by pytest
+    cfg.paths.models = tmp_path / "models_output"
+    cfg.paths.exports = tmp_path / "exports_output"
+    # cfg.paths.logs can also be overridden if logs were written by run_training
 
     # Minimal training
     cfg.epochs     = 1
@@ -43,8 +45,11 @@ def test_one_epoch_with_real_data(tmp_path: Path):
     run_training(cfg, torch.device("cpu"))
 
     # Check that outputs were created
-    fp32_onnx = cfg.output_dir / "onnx" / "side_fp32.onnx"
-    ckpt      = cfg.checkpoint_dir / "side_fp32.pt"
+    # Paths are now derived from cfg.paths as used in run_training
+    onnx_output_dir = Path(cfg.paths.exports) / "onnx"
+    checkpoint_output_dir = Path(cfg.paths.models) / "checkpoints"
+    fp32_onnx = onnx_output_dir / "side_fp32.onnx"
+    ckpt      = checkpoint_output_dir / "side_fp32.pt"
 
     assert fp32_onnx.exists(), f"Expected ONNX at {fp32_onnx}"
     assert ckpt.exists(),      f"Expected checkpoint at {ckpt}"

@@ -62,13 +62,13 @@ def run_training(cfg, device):
     cfg.device = current_run_device # Modifies cfg, ensure this is intended scope
 
     # Prepare output directories
-    output_dir = Path(cfg.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint_dir = output_dir / "checkpoints"
+    # Checkpoints will go into a 'checkpoints' subdirectory of cfg.paths.models
+    checkpoint_dir = Path(cfg.paths.models) / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    onnx_dir = output_dir / "onnx"
+
+    # ONNX exports will go directly into cfg.paths.exports
+    onnx_dir = Path(cfg.paths.exports)
     onnx_dir.mkdir(parents=True, exist_ok=True)
-    cfg.checkpoint_dir = checkpoint_dir
 
     # Build data loaders
     ds_train = PennyDataset(cfg, model=cfg.model_type, subset='train')
