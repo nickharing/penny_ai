@@ -1,139 +1,179 @@
-# dataset.py
+# src/dataset.py
 # Purpose: Dataset for penny image classification tasks using ModelConfig
-import json, logging, random
+# Author: <Your Name>
+# Date: YYYY-MM-DD
+# Dependencies: torch, torchvision, PIL, OpenCV, numpy, config_utils
+
+import json
+import logging
 from pathlib import Path
-import torch
+import numpy as np
+import cv2
 from PIL import Image
+import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from .config_utils import load_config, ModelConfig
+from src.config_utils import load_config, ModelConfig
 
 logger = logging.getLogger(__name__)
 
 class PennyDataset(Dataset):
+    """
+    Dataset for different penny classification tasks: side, date, mint, orientation, reverse_type.
+    Applies preprocessing (CLAHE, median filter, threshold), ROI cropping, augmentations, and returns (image, label).
+    """
     def __init__(self, cfg: ModelConfig, model: str, subset: str = 'train'):
         self.cfg = cfg
         self.model = model
         self.subset = subset
-        # build transform
-        tfms = [transforms.Resize(tuple(cfg.image_size)), transforms.ToTensor()]
-        tfms.append(transforms.Normalize(cfg.normalization, cfg.std))
-        if cfg.apply_augmentations and subset=='train':
-            aug = []
-            if cfg.random_horizontal_flip: aug.append(transforms.RandomHorizontalFlip())
-            if cfg.rotation_degrees: aug.append(transforms.RandomRotation(cfg.rotation_degrees))
-            tfms = aug + tfms
-        self.transform = transforms.Compose(tfms)
-        # load metadata
-        with open(cfg.paths.metadata, 'r') as f: all_meta = json.load(f)
-        # filter by model type
-        if model=='side': items=[m for m in all_meta if m['type']=='penny']
-        elif model in ['date','mint']: items=[m for m in all_meta if m['type']=='roi']
-        else: # Potentially handle unknown model type or use all_meta as a fallback
-            logger.warning(f"Unknown model type '{model}' for filtering. Using all metadata items.")
-            items=all_meta
+        self.image_mode = 'L'  # grayscale
 
-        if not items:
-            logger.warning(f"No items found after filtering for model '{model}' and type. Dataset will be empty.")
-            self.items = []
-            self.label_to_idx = {}
-            self.roi_definitions = {} # Ensure attribute exists even if empty
-            return
+        # Build metadata filter
+        with open(cfg.paths.metadata, 'r') as f:
+            all_meta = json.load(f)
+        if model == 'side':
+            self.items = [m for m in all_meta if m.get('type') == 'penny']
+        elif model == 'date':
+            self.items = [m for m in all_meta if m.get('type') == 'roi' and m.get('roi_type') == 'date']
+        elif model == 'mint':
+            self.items = [m for m in all_meta if m.get('type') == 'roi' and m.get('roi_type') == 'mint']
+        elif model == 'orientation':
+            self.items = [m for m in all_meta if m.get('type') == 'penny']
+        elif model == 'reverse_type':
+            self.items = [m for m in all_meta if m.get('type') == 'penny' and m.get('side') == 'reverse']
+        else:
+            logger.warning(f"Unknown model type '{model}' for filtering. Using all items.")
+            self.items = all_meta
 
-        random.seed(cfg.seed); random.shuffle(items)
-        # split
-        n=len(items); t=int(0.8*n); v=int(0.1*n)
-        splits={'train':items[:t],'val':items[t:t+v],'test':items[t+v:]}
-        self.items=splits[subset]
-        
-        # build file map, scoped to the relevant subfolder for the model
+        # Build file map
         self.file_map = {}
-        # Define a mapping from model type to expected subfolder name
-        model_to_subfolder = {
-            "side": "obverse", # Assuming 'side' model uses 'obverse' images, adjust if different
-            "date": "date",
-            "mint": "mint_mark", # Or "mint" if that's the folder name
-            "orientation": "reverse" # Assuming 'orientation' model uses 'reverse' images
+        mapping = {
+            'side': ['obverse', 'reverse'],
+            'date': ['date'],
+            'mint': ['mint_mark'],
+            'orientation': ['obverse', 'reverse'],
+            'reverse_type': ['reverse']
         }
-        subfolder_name = model_to_subfolder.get(model)
-        if subfolder_name:
-            base_path = Path(cfg.paths.data_root) / subfolder_name
-            if base_path.exists() and base_path.is_dir():
-                for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif']:
-                    for p in base_path.rglob(ext):
+        subfolders = mapping.get(model, [])
+        for sf in subfolders:
+            base = Path(cfg.paths.data_root) / sf
+            if base.is_dir():
+                for ext in ['*.jpg','*.jpeg','*.png','*.bmp','*.gif']:
+                    for p in base.rglob(ext):
                         self.file_map[p.name] = p
             else:
-                logger.warning(f"Expected subfolder '{subfolder_name}' for model '{model}' not found in {cfg.paths.data_root}. File map may be empty.")
-        else:
-            logger.warning(f"No specific subfolder mapping for model '{model}'. File map may be incomplete or overly broad if relying on a global scan (not implemented here).")
+                logger.warning(f"Missing data subfolder for model '{model}': {base}")
 
-        # label map
-        labels=sorted({m.get(model,'unknown') for m in self.items})
-        self.label_to_idx={lbl:i for i,lbl in enumerate(labels)}
-        # Load ROI definitions once if needed
-        self.roi_definitions = {}
-        if self.model in ['date', 'mint'] and Path(self.cfg.paths.roi).exists():
-            try:
-                with open(self.cfg.paths.roi, 'r') as f:
-                    self.roi_definitions = json.load(f)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to decode ROI JSON from {self.cfg.paths.roi}")
-            except FileNotFoundError:
-                 logger.error(f"ROI file not found at {self.cfg.paths.roi} though model type suggests it's needed.")
-        elif self.model in ['date', 'mint'] and not Path(self.cfg.paths.roi).exists():
-            logger.warning(f"ROI file {self.cfg.paths.roi} not found, but model type is {self.model}. ROI cropping will be skipped.")
+        # Build label map
+        label_field = {
+            'side': 'side',
+            'date': 'year',
+            'mint': 'mint',
+            'orientation': 'angle',
+            'reverse_type': 'reverse_type'
+        }.get(model)
+        if label_field is None:
+            raise ValueError(f"No label field for model '{model}'")
+        # extract label strings
+        label_vals = set()
+        for m in self.items:
+            if model == 'orientation':
+                try:
+                    angle = float(m.get('angle',0))
+                    bin_idx = int(angle//3)%120
+                    label_vals.add(str(bin_idx))
+                except:
+                    continue
+            else:
+                val = m.get(label_field)
+                if val is not None:
+                    label_vals.add(str(val))
+        self.labels = sorted(label_vals)
+        self.label_to_idx = {v:i for i,v in enumerate(self.labels)}
 
-    def __len__(self): return len(self.items)
+        # ROI definitions for date/mint
+        roi_path = Path(cfg.paths.roi)
+        self.roi_defs = json.loads(roi_path.read_text()) if roi_path.exists() else {}
+
+        # Compose transforms: applied after preprocessing & ROI crop
+        tfms = []
+        if cfg.apply_augmentations and subset=='train':
+            if cfg.random_horizontal_flip:
+                tfms.append(transforms.RandomHorizontalFlip())
+            if cfg.rotation_degrees:
+                tfms.append(transforms.RandomRotation(cfg.rotation_degrees))
+            # other augmentations to be added here
+        tfms.extend([
+            transforms.Resize(tuple(cfg.image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(cfg.normalization, cfg.std)
+        ])
+        self.transform = transforms.Compose(tfms)
+
+    def __len__(self):
+        return len(self.items)
 
     def __getitem__(self, idx):
         sample = self.items[idx]
-        fname_meta = sample['filename'] # Filename from metadata, e.g., "penny_reverse_w_0098 - Copy.jpg"
+        fname = sample.get('filename')
+        img_path = self.file_map.get(Path(fname).name)
+        if img_path is None:
+            raise FileNotFoundError(f"Image '{fname}' not found in file_map")
 
-        # Attempt 1: Direct lookup in file_map using the exact basename from metadata
-        # This assumes fname_meta is a basename, which aligns with "metadata formatting will not change"
-        # if that implies filenames in metadata don't have subpaths.
-        img_path = self.file_map.get(Path(fname_meta).name)
+        # Load grayscale PIL image
+        pil = Image.open(img_path).convert(self.image_mode)
 
-        # Attempt 2: If not found and metadata filename contains " - Copy.jpg",
-        # try looking up the version without " - Copy.jpg"
-        if not img_path and " - Copy.jpg" in fname_meta:
-            fname_stripped = Path(fname_meta).name.replace(" - Copy.jpg", ".jpg")
-            img_path = self.file_map.get(fname_stripped)
-            if img_path:
-                logger.debug(f"Found image using stripped name '{fname_stripped}' for metadata entry '{fname_meta}'")
-        # Attempt 2b: Handle ".png" as well for " - Copy.png"
-        elif not img_path and " - Copy.png" in fname_meta: # Use elif to avoid re-stripping if .jpg version was already tried
-            fname_stripped = Path(fname_meta).name.replace(" - Copy.png", ".png")
-            img_path = self.file_map.get(fname_stripped)
-            if img_path:
-                logger.debug(f"Found image using stripped name '{fname_stripped}' for metadata entry '{fname_meta}'")
+        # Preprocessing (CLAHE, median, threshold)
+        img_np = np.array(pil)
+        if self.cfg.preprocessing.get('apply_clahe', False):
+            clahe = cv2.createCLAHE(
+                clipLimit=self.cfg.preprocessing.get('clahe_clip_limit',1.5),
+                tileGridSize=tuple(self.cfg.preprocessing.get('clahe_tile_grid_size',[8,8]))
+            )
+            img_np = clahe.apply(img_np)
+        if self.cfg.preprocessing.get('apply_median_filter', False):
+            k = self.cfg.preprocessing.get('median_filter_kernel_size',3)
+            k += (1 - k%2)
+            img_np = cv2.medianBlur(img_np, k)
+        if self.cfg.preprocessing.get('apply_adaptive_threshold', False):
+            b = self.cfg.preprocessing.get('adaptive_threshold_block_size',13)
+            b += (1 - b%2)
+            C = self.cfg.preprocessing.get('adaptive_threshold_C',3)
+            img_np = cv2.adaptiveThreshold(
+                img_np,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,b,C
+            )
+        pil = Image.fromarray(img_np)
 
-        if not img_path or not img_path.exists():
-            error_msg_detail = f"metadata filename: '{fname_meta}'. Tried direct map lookup for '{Path(fname_meta).name}'"
-            if " - Copy" in fname_meta: error_msg_detail += f" and stripped version '{fname_meta.replace(' - Copy.jpg', '.jpg').replace(' - Copy.png', '.png')}'."
-            logger.error(f"Image file not found for metadata entry: {sample}. {error_msg_detail}")
-            raise FileNotFoundError(f"Image not found. {error_msg_detail}")
-
-        image=Image.open(img_path).convert('RGB')
-        # ROI crop
+        # ROI crop for date/mint
         if self.model in ['date','mint']:
-            # Use the same logic for the ROI key as for finding the image in file_map
-            # if metadata filenames might have " - Copy" but ROI keys don't.
-            roi_key = Path(fname_meta).name 
-            if " - Copy.jpg" in roi_key:
-                roi_key = roi_key.replace(" - Copy.jpg", ".jpg")
-            elif " - Copy.png" in roi_key:
-                roi_key = roi_key.replace(" - Copy.png", ".png")
+            key = Path(fname).name
+            coords = self.roi_defs.get(key)
+            if coords:
+                x,y,w,h = coords
+                pad = self.cfg.roi_padding.get(self.model, {})
+                top = int(h*pad.get('top',0))
+                bot = int(h*pad.get('bottom',0))
+                left = int(w*pad.get('left',0))
+                right = int(w*pad.get('right',0))
+                x0,x1 = max(0,x-left), min(pil.width, x+w+right)
+                y0,y1 = max(0,y-top),  min(pil.height, y+h+bot)
+                pil = pil.crop((x0,y0,x1,y1))
 
-            coords=self.roi_definitions.get(roi_key)
-            if coords: x,y,w,h=coords; image=image.crop((x,y,x+w,y+h))
-            elif self.roi_definitions: # Only warn if ROI defs were loaded but this specific image's ROI is missing
-                logger.warning(f"ROI coordinates not found for '{roi_key}' in loaded ROI definitions. Full image used.")
+        # Transform
+        img = self.transform(pil)
 
-        img=self.transform(image)
-        label_str = sample.get(self.model) # Simplified label retrieval
-        label_idx = self.label_to_idx.get(label_str)
+        # Label
+        if self.model == 'orientation':
+            angle = float(sample.get('angle',0))
+            label = str(int(angle//3)%120)
+        else:
+            label = str(sample.get({
+                'side':'side','date':'year','mint':'mint',
+                'reverse_type':'reverse_type'
+            }[self.model]))
+        label_idx = self.label_to_idx.get(label)
         if label_idx is None:
-            logger.error(f"Label '{label_str}' for model '{self.model}' in sample '{fname_meta}' not found in label_to_idx. Mapped labels: {self.label_to_idx}")
-            raise KeyError(f"Label '{label_str}' not found in label map. Check metadata and dataset initialization.")
+            raise KeyError(f"Label '{label}' not in map for model '{self.model}'")
+
         return img, label_idx

@@ -15,11 +15,11 @@ CONFIG_PATH = Path(__file__).parent.parent / "configs" / "training_config.yaml"
 @dataclass
 class PathsConfig:
     data_root: Path
-    metadata: Path
-    roi: Path
-    models: Path
-    logs: Path
-    exports: Path
+    metadata: Path = field(default=None) # Allow None initially if not always needed
+    roi: Path = field(default=None)      # Allow None initially if not always needed
+    models: Path = field(default=None)
+    logs: Path = field(default=None)
+    exports: Path = field(default=None)
 
 @dataclass
 class DataDefaults:
@@ -173,8 +173,10 @@ def load_config(model: str, use_test_paths: bool = False) -> ModelConfig:
     # Validate existence of essential input paths
     # Output paths (models, logs, exports) are created by scripts, so not checked here.
     # The use_test_paths flag in the test script will ensure these point to tmp_path for outputs.
-    essential_input_paths = {"data_root": paths.data_root, "metadata": paths.metadata, "roi": paths.roi}
+    # Only validate paths that are expected to exist before training starts (inputs)
+    essential_input_paths = {"data_root": paths.data_root}
+    if paths.metadata: essential_input_paths["metadata"] = paths.metadata
+    if paths.roi: essential_input_paths["roi"] = paths.roi
     for name, p in essential_input_paths.items():
         if not p.exists():
             raise FileNotFoundError(f"Config path '{name}' from '{paths_section_key}' section -> {p} does not exist or is not accessible.")
-    return model_config_instance

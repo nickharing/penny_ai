@@ -22,9 +22,9 @@ test_paths:
 defaults:
   data:
     image_size:      [224, 224] # Default image size, can be overridden per model
-    normalization:
-      mean:        [0.5, 0.5, 0.5]
-      std:         [0.5, 0.5, 0.5]
+    normalization: # Grayscale normalization
+      mean:        [0.5]
+      std:         [0.5]
     roi_padding:
       date:  { top: 0.0, bottom: 0.0, left: 0.0, right: 0.0 }
       mint:  { top: 0.0, bottom: 0.0, left: 0.0, right: 0.0 }
@@ -62,7 +62,7 @@ defaults:
 # Per-model configuration: only fields differing from defaults are specified
 models:
   side:
-    data:
+    data: # side model uses full penny image
       image_size:         [224, 224]
     training:
       batch_size:         8      # specific for side model
@@ -70,7 +70,7 @@ models:
     augmentation:
       apply_augmentations: true
 
-  date:
+  date: # Year predictor model
     data:
       image_size:         [96, 96]
     training:
@@ -79,7 +79,7 @@ models:
     augmentation:
       apply_augmentations: true
 
-  mint:
+  mint: # Mint mark classification model
     data:
       image_size:         [32, 32]
     training:
@@ -87,7 +87,7 @@ models:
     augmentation:
       apply_augmentations: true
 
-  orientation:
+  orientation: # Orientation classification model
     data:
       image_size:         [128, 128]
     training:
